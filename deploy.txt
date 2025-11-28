@@ -1,0 +1,50 @@
+$PROJECT_ID = "ortega-473114"
+$REGION     = "us-central1"
+$SERVICE    = "brain"
+$REPO       = "ai"
+$TAG        = (Get-Date -Format "yyyyMMdd-HHmmss")
+$IMAGE      = "us-central1-docker.pkg.dev/$PROJECT_ID/$REPO/$($SERVICE):$TAG"
+
+Write-Host "IMAGE = $IMAGE"
+
+# Service Account que ejecutará el servicio (ajústalo si usas otro)
+$SA_EMAIL   = "gctest@$PROJECT_ID.iam.gserviceaccount.com"
+
+# Recursos de PDF/GCS
+$PDF_BUCKET = "my-bucket-out"   # bucket existente para staging de PDFs
+
+# === (Opcional, primera vez) habilitar servicios ===
+# gcloud services enable run.googleapis.com artifactregistry.googleapis.com aiplatform.googleapis.com storage.googleapis.com docs.googleapis.com drive.googleapis.com
+
+# === 1) Build + Push (Cloud Build) ===
+gcloud builds submit --tag $IMAGE --project $PROJECT_ID
+
+# === 2) Deploy con la NUEVA imagen ===
+gcloud run deploy $SERVICE `
+  --image $IMAGE `
+  --project $PROJECT_ID `
+  --region $REGION `
+  --platform managed `
+  --service-account $SA_EMAIL `
+  --allow-unauthenticated `
+  --memory 1Gi `
+  --cpu 1 `
+  --concurrency 60 `
+  --timeout 720 `
+  --min-instances 0 `
+  --max-instances 20 `
+  --set-env-vars `
+    "ENVIRONMENT=run,`
+LOG_LEVEL=INFO,`
+LOG_FORMAT=json,`
+LOG_INCLUDE_PII=false,`
+GCP_PROJECT_ID=$PROJECT_ID,`
+GCP_LOCATION=$REGION,`
+SA_EMAIL=$SA_EMAIL,`
+VERTEX_MODEL_ID=gemini-2.5-flash,`
+PDF_STAGING_BUCKET=$PDF_BUCKET,`
+PDF_MAX_PAGES_PER_CHUNK=60,`
+PDF_USE_FILE_API=true,`
+DOCS_TEXT_CHUNK=50000,`
+DOCS_TEXT_CHUNK_SLEEP_MS=150,`
+APP_VERSION=$TAG"

@@ -37,10 +37,11 @@ def _scopes_tuple(scopes: Optional[Iterable[str]]) -> Tuple[str, ...]:
     return tuple(sorted(set(scopes or [])))
 
 def _from_service_account_file(path: str, scopes: Tuple[str, ...]) -> SACredentials:
-    if not os.path.exists(path):
+    if not path or not os.path.exists(path):
         raise FileNotFoundError(f"No se encontró el archivo de credenciales: {path}")
     logger.debug(f"Usando Service Account JSON: {path}")
     return SACredentials.from_service_account_file(path, scopes=list(scopes))
+
 
 def _adc_credentials(scopes: Tuple[str, ...]) -> BaseCredentials:
     creds, _ = google.auth.default(scopes=list(scopes))
@@ -51,8 +52,10 @@ def _adc_credentials(scopes: Tuple[str, ...]) -> BaseCredentials:
 @lru_cache(maxsize=4)
 def get_workspace_credentials(scopes: Optional[Iterable[str]] = WORKSPACE_SCOPES) -> BaseCredentials:
     scopes_t = _scopes_tuple(scopes)
-    if settings.google_application_credentials:
+    # Local: solo usa keyfile si de verdad existe
+    if settings.google_application_credentials and os.path.exists(settings.google_application_credentials):
         return _from_service_account_file(settings.google_application_credentials, scopes_t)
+    # Cloud Run (ADC)
     return _adc_credentials(scopes_t)
 
 # --- CLIENTES GOOGLE API ---

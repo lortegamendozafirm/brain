@@ -12,6 +12,7 @@ from http.client import IncompleteRead
 
 from googleapiclient.errors import HttpError
 from googleapiclient.http import HttpRequest
+from src.utils.md_to_gdocs import MarkdownToDocs
 from src.auth import build_docs_client
 from src.utils.logger import get_logger
 
@@ -193,3 +194,99 @@ def write_to_document(document_id: str, text: str) -> None:
             start += MAX_CHARS
             part += 1
             time.sleep(0.15)  # ⬅️ 150ms para no “aplanar” el backend
+
+
+def _batch_update_docs(document_id: str, requests: List[Dict[str, Any]]):
+    docs = build_docs_client()
+    req = docs.documents().batchUpdate(documentId=document_id, body={"requests": requests})
+    return _execute_with_retries(req)
+
+def _clear_document_keep_root_newline(document_id: str) -> None:
+    """
+    Borra el contenido del Doc conservando el newline del segmento raíz.
+    Evita el clásico `Invalid deleteContentRange` de Docs.
+    """
+    docs = build_docs_client()
+    get_req: HttpRequest = docs.documents().get(documentId=document_id)
+    doc_raw: Optional[Dict[str, Any]] = _execute_with_retries(get_req)
+    doc: Document = cast(Document, doc_raw)
+    end_index: int = _get_end_index(doc)
+
+    # Si hay contenido, borra hasta end_index - 1 (deja el newline final)
+    delete_end = max(1, end_index - 1)
+    if delete_end > 1:
+        _batch_update_docs(document_id, [{
+            "deleteContentRange": {"range": {"startIndex": 1, "endIndex": delete_end}}
+        }])
+
+
+
+def write_markdown_to_document(
+    document_id: str,
+    markdown_text: str,
+    *,
+    clear_before_write: bool = True,
+    max_ops_per_batch: int = 200,
+    sleep_ms_between_batches: int = 150,
+    list_policy: str = "auto",   # ⬅️ NUEVO: "auto" o "none"
+) -> None:
+    """
+    Renderiza Markdown como formato nativo en Google Docs:
+    - Encabezados H1..H6, párrafos
+    - **bold**, *italic*, `code`
+    - listas (-, *, + y 1.), blockquote, reglas ---
+    - tablas markdown simples, bloques ```code```
+
+    Usa `list_policy="none"` para desactivar viñetas (y limpiar cualquier
+    bullet 'heredado' de párrafos).
+    """
+    # 1) Limpiar el documento (opcional, dejando el newline raíz)
+    if clear_before_write:
+        _clear_document_keep_root_newline(document_id)
+
+    # 2) Resetear cualquier estado previo de lista/estilo de párrafo
+    _reset_paragraph_state(document_id)
+
+    # 3) Obtener el endIndex actual después de limpiar
+    docs = build_docs_client()
+    get_req: HttpRequest = docs.documents().get(documentId=document_id)
+    doc_raw: Optional[Dict[str, Any]] = _execute_with_retries(get_req)
+    doc: Document = cast(Document, doc_raw)
+    start_index: int = _get_end_index(doc)  # suele ser 2 en un doc "vacío"
+
+    # 4) Construir requests desde el Markdown con la política de listas deseada
+    policy = "none" if str(list_policy).lower() == "none" else "auto"
+    renderer = MarkdownToDocs(initial_index=start_index, list_policy=policy)
+    requests = renderer.render(markdown_text or "")
+
+    # 5) Enviar en lotes con backoff suave (igual que tu writer plano)
+    i = 0
+    total = len(requests)
+    if total == 0:
+        return
+
+    while i < total:
+        chunk = requests[i:i + max_ops_per_batch]
+        _batch_update_docs(document_id, chunk)
+        i += max_ops_per_batch
+        time.sleep(sleep_ms_between_batches / 1000.0)
+
+
+
+# --- NUEVO: helpers ---
+def _reset_paragraph_state(document_id: str) -> None:
+    """Quita cualquier bullet activo y fuerza NORMAL_TEXT en el doc actual."""
+    docs = build_docs_client()
+    get_req = docs.documents().get(documentId=document_id)
+    doc_raw = _execute_with_retries(get_req) or {}
+    body = (doc_raw or {}).get("body", {}) or {}
+    content = (body or {}).get("content", []) or []
+    end_index = int(content[-1].get("endIndex", 2)) if content else 2
+    _batch_update_docs(document_id, [
+        {"deleteParagraphBullets": {"range": {"startIndex": 1, "endIndex": end_index}}},
+        {"updateParagraphStyle": {
+            "range": {"startIndex": 1, "endIndex": end_index},
+            "paragraphStyle": {"namedStyleType": "NORMAL_TEXT"},
+            "fields": "namedStyleType"
+        }},
+    ])

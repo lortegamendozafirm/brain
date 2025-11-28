@@ -12,7 +12,14 @@ google-auth-httplib2>=0.2
 google-auth-oauthlib>=1.2
 httplib2>=0.22
 
-# Vertex AI (incluye módulo `vertexai`)
+# Vertex
 google-cloud-aiplatform>=1.70
 
 PyPDF2
+
+# --- Markdown parser + plugins (compatibles)
+markdown-it-py==3.0.0
+mdit-py-plugins==0.4.0
+mdurl==0.1.2
+
+beautifulsoup4>=4.12.2
