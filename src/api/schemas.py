@@ -1,4 +1,4 @@
-# src/domain/schemas.py
+# src/api/schemas.py
 from pydantic import BaseModel
 from typing import Dict, Any, Optional
 
@@ -14,7 +14,6 @@ class ProcessResponse(BaseModel):
     message: str
     output_doc_link: str
 
-# ✅ Nuevo: igual al anterior, pero reemplaza input_doc_id por pdf_url (+ opcional drive_file_id)
 class ProcessRequestPDF(BaseModel):
     system_instructions_doc_id: str
     base_prompt_doc_id: str

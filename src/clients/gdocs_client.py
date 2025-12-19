@@ -12,7 +12,7 @@ from http.client import IncompleteRead
 
 from googleapiclient.errors import HttpError
 from googleapiclient.http import HttpRequest
-from src.utils.md_to_gdocs import MarkdownToDocs
+from src.utils.md2gdocs import MarkdownToDocs
 from src.auth import build_docs_client
 from src.utils.logger import get_logger
 
@@ -134,8 +134,6 @@ def _get_end_index(doc: Document) -> int:
 
 # ========= Operaciones de escritura =========
 
-# src/clients/gdocs_client.py
-
 def write_to_document(document_id: str, text: str) -> None:
     """
     Borra el contenido (sin tocar el newline final) e inserta `text` al inicio.
@@ -228,7 +226,7 @@ def write_markdown_to_document(
     clear_before_write: bool = True,
     max_ops_per_batch: int = 200,
     sleep_ms_between_batches: int = 150,
-    list_policy: str = "auto",   # ⬅️ NUEVO: "auto" o "none"
+    list_policy: str = "auto",
 ) -> None:
     """
     Renderiza Markdown como formato nativo en Google Docs:
